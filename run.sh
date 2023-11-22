@@ -1,34 +1,62 @@
 #!/bin/bash
 
-package_name=$1
-
-mkdir -p $package_name
-cd $package_name
-
-download_package_versions() {
-	versions=$(curl -s "https://pypi.org/pypi/${package_name}/json" | jq -r '.releases | keys[]')
-
-	for version in $versions; do
-		download_url=$(curl -s "https://pypi.org/pypi/${package_name}/${version}/json" | jq -r '.urls[0].url')
-		echo "Downloading version ${version}..."
-		wget "${download_url}"
-		extract_package
-		run_trufflehog
-	done
-}
-
 run_trufflehog() {
-	trufflehog filesystem --directory contents --debug --only-verified | tee -a trufflehog.txt | notify
+    ../../docker-hub-scanner/trufflehog filesystem --directory contents --debug --only-verified | tee -a trufflehog.txt
 }
 
 extract_package() {
-	ls *.whl | xargs -I {} unzip {} -d contents
+    ls *.whl | xargs -I {} unzip {} -d contents
 }
 
-cleanup() {
-	local version="$1"
-	echo "Cleaning up version ${version}..."
-	rm -rf "${version}.tar.gz"
+notify() {
+    cat trufflehog.txt | xargs -I {} sh ../notify.sh {}
 }
 
-download_package_versions
+fetch_latest_two_versions() {
+    curl -s "https://pypi.org/pypi/$1/json" | jq -r '.releases | keys_unsorted | reverse | .[0:2] | .[]'
+}
+
+
+fetch_versions() {
+	local response=$(curl -s -o /dev/null -w "%{http_code}" "https://pypi.org/pypi/$1/json")
+	if [[ $response == 404 ]]; then
+		echo "Error: Package $1 not found."
+		return 1
+	else
+		curl -s "https://pypi.org/pypi/$1/json" | jq -r '.releases | keys_unsorted | .[]'
+	fi
+}
+
+fetch_package_names() {
+    curl -s https://pypi.org/simple/ | grep '<a href="/simple/' | sed 's/<a href="\/simple\///;s/\/">//;s/<\/a>//'
+}
+
+for package_name in $(fetch_package_names); do
+    echo "Processing $package_name"
+    mkdir -p "$package_name"
+    cd "$package_name"
+
+    all_versions=$(fetch_versions "$package_name")
+    if [ $? -eq 1 ]; then
+	cd ..
+	continue
+    fi
+    latest_two_versions=$(echo "$all_versions" | tail -n 2)
+    
+
+    for version in $all_versions; do
+	if echo "$latest_two_versions" | grep -q "$version"; then
+	        download_url=$(curl -s "https://pypi.org/pypi/${package_name}/${version}/json" | jq -r '.urls[0].url')
+	        echo "Downloading version ${version} of ${package_name}..."
+	        wget "${download_url}"
+	        extract_package
+	        run_trufflehog
+	        notify
+	        mv contents "$version"
+	        rm -rf *.whl
+	fi
+    done
+
+    cd ..
+done
+
