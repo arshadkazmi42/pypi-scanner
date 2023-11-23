@@ -56,7 +56,6 @@ for package_name in $(fetch_package_names); do
 		sh notify.sh "Processing $version"
 	        notify
 	        mv contents "$version"
-	        rm -rf *.whl
 	fi
     done
 
