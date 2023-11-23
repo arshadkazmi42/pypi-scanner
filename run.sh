@@ -28,7 +28,8 @@ fetch_versions() {
 }
 
 fetch_package_names() {
-    curl -s https://pypi.org/simple/ | grep '<a href="/simple/' | sed 's/<a href="\/simple\///;s/\/">//;s/<\/a>//'
+	curl --header 'Accept: application/vnd.pypi.simple.v1+json' -s https://pypi.org/simple/ | jq -r '.projects[].name'
+#    curl -s https://pypi.org/simple/ | grep '<a href="/simple/' | sed 's/<a href="\/simple\///;s/\/">//;s/<\/a>//'
 }
 
 for package_name in $(fetch_package_names); do
@@ -39,6 +40,7 @@ for package_name in $(fetch_package_names); do
     all_versions=$(fetch_versions "$package_name")
     if [ $? -eq 1 ]; then
 	cd ..
+	rm -rf "$package_name"
 	continue
     fi
     latest_two_versions=$(echo "$all_versions" | tail -n 2)
@@ -51,6 +53,7 @@ for package_name in $(fetch_package_names); do
 	        wget "${download_url}"
 	        extract_package
 	        run_trufflehog
+		sh notify.sh "Processing $version"
 	        notify
 	        mv contents "$version"
 	        rm -rf *.whl
@@ -58,5 +61,6 @@ for package_name in $(fetch_package_names); do
     done
 
     cd ..
+    rm -rf "$package_name"
 done
 
